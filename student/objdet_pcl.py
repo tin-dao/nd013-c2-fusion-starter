@@ -31,6 +31,8 @@ from tools.waymo_reader.simple_waymo_open_dataset_reader import dataset_pb2, lab
 # object detection tools and helper functions
 import misc.objdet_tools as tools
 
+# variable to control visualization
+visualize = False
 
 # visualize lidar point-cloud
 def show_pcl(pcl):
@@ -90,7 +92,10 @@ def show_range_image(frame, lidar_name):
     ri_range = ri_range * 255 / (np.amax(ri_range) - np.amin(ri_range))
     
     # step 5 : map the intensity channel onto an 8-bit scale and normalize with the difference between the 1- and 99-percentile to mitigate the influence of outliers
-    ri_intensity = ri_intensity * 255 / (np.percentile(ri_intensity, 99) - np.percentile(ri_intensity, 1))
+    percentile1 = np.percentile(ri_intensity, 1)
+    percentile99 = np.percentile(ri_intensity, 99)
+    ri_intensity = np.clip(ri_intensity, percentile1, percentile99) - percentile1
+    ri_intensity = ri_intensity * 255 / (percentile99 - percentile1)
 
     # step 6 : stack the range and intensity image vertically using np.vstack and convert the result to an unsigned 8-bit integer
     img_range_intensity = np.vstack((ri_range, ri_intensity)).astype(np.uint8)
@@ -128,11 +133,11 @@ def bev_from_pcl(lidar_pcl, configs):
     lidar_pcl_cpy[:, 0] = np.int_(np.floor(lidar_pcl_cpy[:, 0] / discretization_step))
 
     # step 3 : perform the same operation as in step 2 for the y-coordinates but make sure that no negative bev-coordinates occur
-    lidar_pcl_cpy[:, 1] = np.int_(np.floor(lidar_pcl_cpy[:, 1] / discretization_step) + configs.bev_width / 2)
-    lidar_pcl_cpy[lidar_pcl_cpy[:,1]<0, 1] = 0
+    lidar_pcl_cpy[:, 1] = np.int_(np.floor(lidar_pcl_cpy[:, 1] / discretization_step) + (configs.bev_width + 1) / 2)
 
     # step 4 : visualize point-cloud using the function show_pcl from a previous task
-    show_pcl(lidar_pcl_cpy)
+    if visualize:
+        show_pcl(lidar_pcl_cpy)
 
     #######
     ####### ID_S2_EX1 END #######     
@@ -149,24 +154,27 @@ def bev_from_pcl(lidar_pcl, configs):
     # step 2 : re-arrange elements in lidar_pcl_cpy by sorting first by x, then y, then -z (use numpy.lexsort)
     lidar_pcl_cpy[lidar_pcl_cpy[:,3]>1.0, 3] = 1.0
     idx_intensity = np.lexsort((-lidar_pcl_cpy[:, 2], lidar_pcl_cpy[:, 1], lidar_pcl_cpy[:, 0]))
-    lidar_pcl_top = lidar_pcl_cpy[idx_intensity]
+    lidar_pcl_cpy = lidar_pcl_cpy[idx_intensity]
 
     ## step 3 : extract all points with identical x and y such that only the top-most z-coordinate is kept (use numpy.unique)
     ##          also, store the number of points per x,y-cell in a variable named "counts" for use in the next task
     _, idx_height_unique, counts = np.unique(lidar_pcl_cpy[:, 0:2], axis=0, return_index=True, return_counts=True)
-    lidar_pcl_top = lidar_pcl_top[idx_height_unique]
+    lidar_pcl_top = lidar_pcl_cpy[idx_height_unique]
 
     ## step 4 : assign the intensity value of each unique entry in lidar_top_pcl to the intensity map 
     ##          make sure that the intensity is scaled in such a way that objects of interest (e.g. vehicles) are clearly visible    
     ##          also, make sure that the influence of outliers is mitigated by normalizing intensity on the difference between the max. and min. value within the point cloud
-    intensity_map[np.int_(lidar_pcl_top[:, 0]), np.int_(lidar_pcl_top[:, 1])] = lidar_pcl_top[:, 3] / (np.percentile(lidar_pcl_top[:, 3], 99) - np.percentile(lidar_pcl_top[:, 3], 1))
+    percentile1 = np.percentile(lidar_pcl_top[:, 3], 1)
+    percentile99 = np.percentile(lidar_pcl_top[:, 3], 99)
+    intensity_map[np.int_(lidar_pcl_top[:, 0]), np.int_(lidar_pcl_top[:, 1])] = (np.clip(lidar_pcl_top[:, 3], percentile1, percentile99) - percentile1) / (percentile99 - percentile1)
 
     ## step 5 : temporarily visualize the intensity map using OpenCV to make sure that vehicles separate well from the background
-    intensity_image = intensity_map * 255
-    intensity_image = intensity_image.astype(np.uint8)
-    cv2.imshow('Intensity image', intensity_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if visualize:
+        intensity_image = intensity_map * 255
+        intensity_image = intensity_image.astype(np.uint8)
+        cv2.imshow('Intensity image', intensity_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     #######
     ####### ID_S2_EX2 END ####### 
@@ -186,11 +194,12 @@ def bev_from_pcl(lidar_pcl, configs):
     height_map[np.int_(lidar_pcl_top[:, 0]), np.int_(lidar_pcl_top[:, 1])] = lidar_pcl_top[:, 2] / float(configs.lim_z[1] - configs.lim_z[0])
 
     ## step 3 : temporarily visualize the intensity map using OpenCV to make sure that vehicles separate well from the background
-    height_image = height_map * 255
-    height_image = height_image.astype(np.uint8)
-    cv2.imshow('Height image', height_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if visualize:
+        height_image = height_map * 255
+        height_image = height_image.astype(np.uint8)
+        cv2.imshow('Height image', height_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     #######
     ####### ID_S2_EX3 END #######       
